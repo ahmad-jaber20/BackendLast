@@ -60,8 +60,4 @@ jobs:
 
             chmod +x vault/script.sh
             ./vault/script.sh
-
-            docker compose pull
-            docker compose up -d --remove-orphans
-
             docker image prune -f
