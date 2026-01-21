@@ -54,6 +54,5 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            set -e
-            /root/AhmadJaber/script.sh
+            ./root/AhmadJaber/script.sh
             docker image prune -f
