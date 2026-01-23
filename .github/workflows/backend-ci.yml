@@ -19,6 +19,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: check Code using sonarqube
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+          
 
       - name: Set tag
         id: vars
