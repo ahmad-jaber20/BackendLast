@@ -19,17 +19,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: check Code using sonarqube
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-
-          
-
-      - name: Set tag
-        id: vars
-        run: echo "SHA_TAG=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -38,28 +33,66 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & Push Backend image
+      - name: Build & Push Backend image (latest only)
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/my-backend:latest
-            ghcr.io/${{ github.repository_owner }}/my-backend:${{ steps.vars.outputs.SHA_TAG }}
 
   deploy:
-    name: Deploy to server via SSH
-    runs-on: ubuntu-latest
+    name: Deploy to local kind (pull latest, no port-forward)
+    runs-on: self-hosted
     needs: docker
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
-      - name: SSH and deploy
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            ./root/AhmadJaber/script.sh
-            docker image prune -f
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show versions
+        run: |
+          set -e
+          kubectl version --client
+          kind --version || true
+          docker --version
+
+      - name: Ensure kube context works
+        run: |
+          set -e
+          kubectl cluster-info
+          kubectl get nodes -o wide
+
+      - name: Apply manifests
+        run: |
+          set -e
+
+          if [ -d "./k8s" ]; then
+            K8S_DIR="./k8s"
+          elif [ -d "/home/ahmad-jaber/k8s" ]; then
+            K8S_DIR="/home/ahmad-jaber/k8s"
+          else
+            echo "ERROR: k8s manifests not found. Put them in ./k8s or ensure /home/ahmad-jaber/k8s exists."
+            exit 1
+          fi
+
+          echo "Using manifests at: $K8S_DIR"
+          ls -la "$K8S_DIR"
+
+          kubectl apply -f "$K8S_DIR/namespace.yaml"
+          kubectl apply -f "$K8S_DIR/pg-sec.yaml"
+          kubectl apply -f "$K8S_DIR/backend-cm.yaml"
+          kubectl apply -f "$K8S_DIR/postgres.yaml"
+          kubectl apply -f "$K8S_DIR/backend.yaml"
+
+      - name: Force pull latest (restart deployment)
+        run: |
+          set -e
+          kubectl -n backend rollout restart deploy/backend
+          kubectl -n backend rollout status deploy/backend --timeout=180s
+
+      - name: Status
+        run: |
+          kubectl get pods -A
+          kubectl get svc -A
