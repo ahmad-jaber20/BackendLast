@@ -10,6 +10,12 @@ permissions:
   contents: read
   packages: write
 
+env:
+  NAMESPACE: ahmad
+  DEPLOYMENT: backend
+  CONTAINER: backend
+  IMAGE: ghcr.io/${{ github.repository_owner }}/my-backend
+
 jobs:
   docker:
     name: Build & Push Docker Image to GHCR
@@ -20,7 +26,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-        
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -28,16 +33,17 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & Push Backend image (latest only)
+      - name: Build & Push Backend image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/my-backend:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
 
   deploy:
-    name: Deploy to local kind (pull latest, no port-forward)
+    name: Deploy Backend to K3s (namespace: ahmad)
     runs-on: self-hosted
     needs: docker
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -50,7 +56,6 @@ jobs:
         run: |
           set -e
           kubectl version --client
-          kind --version || true
           docker --version
 
       - name: Ensure kube context works
@@ -59,35 +64,30 @@ jobs:
           kubectl cluster-info
           kubectl get nodes -o wide
 
-      - name: Apply manifests
+      - name: Ensure namespace exists
         run: |
           set -e
+          kubectl get ns $NAMESPACE >/dev/null 2>&1 || kubectl create ns $NAMESPACE
 
-          if [ -d "./k8s" ]; then
-            K8S_DIR="./k8s"
-          elif [ -d "/home/ahmad-jaber/k8s" ]; then
-            K8S_DIR="/home/ahmad-jaber/k8s"
-          else
-            echo "ERROR: k8s manifests not found. Put them in ./k8s or ensure /home/ahmad-jaber/k8s exists."
-            exit 1
-          fi
-
-          echo "Using manifests at: $K8S_DIR"
-          ls -la "$K8S_DIR"
-
-          kubectl apply -f "$K8S_DIR/namespace.yaml"
-          kubectl apply -f "$K8S_DIR/pg-sec.yaml"
-          kubectl apply -f "$K8S_DIR/backend-cm.yaml"
-          kubectl apply -f "$K8S_DIR/postgres.yaml"
-          kubectl apply -f "$K8S_DIR/backend.yaml"
-
-      - name: Force pull latest (restart deployment)
+      - name: Apply manifests (from repo)
         run: |
           set -e
-          kubectl -n backend rollout restart deploy/backend
-          kubectl -n backend rollout status deploy/backend --timeout=180s
+          # Apply namespace file only if you keep it in repo (safe if exists)
+          kubectl apply -f ./k8s/namespace.yaml || true
+
+          # Apply the rest into the target namespace
+          kubectl -n $NAMESPACE apply -f ./k8s/pg-sec.yaml
+          kubectl -n $NAMESPACE apply -f ./k8s/backend-cm.yaml
+          kubectl -n $NAMESPACE apply -f ./k8s/postgres.yaml
+          kubectl -n $NAMESPACE apply -f ./k8s/backend.yaml
+
+      - name: Update image & rollout
+        run: |
+          set -e
+          kubectl -n $NAMESPACE set image deploy/$DEPLOYMENT $CONTAINER=${{ env.IMAGE }}:${{ github.sha }}
+          kubectl -n $NAMESPACE rollout status deploy/$DEPLOYMENT --timeout=180s
 
       - name: Status
         run: |
-          kubectl get pods -A
-          kubectl get svc -A
+          set -e
+          kubectl -n $NAMESPACE get deploy,pods,svc -o wide
