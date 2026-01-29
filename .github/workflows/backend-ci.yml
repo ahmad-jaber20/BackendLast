@@ -43,7 +43,7 @@ jobs:
             ${{ env.IMAGE }}:latest
 
   deploy:
-    name: Deploy Backend to K3s (namespace: ahmad)
+    name: Deploy Backend to K3s
     runs-on: self-hosted
     needs: docker
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
