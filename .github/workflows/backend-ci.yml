@@ -44,53 +44,19 @@ jobs:
             ${{ env.IMAGE }}:latest
 
   deploy:
-    name: Deploy Backend to K3s
     runs-on: self-hosted
     needs: docker
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-  
     steps:
-      - name: Show versions
-        run: |
-          set -e
-          kubectl version --client
-          docker --version
+      - uses: actions/checkout@v4
   
-      - name: Ensure kube context works
+      - name: Use kubeconfig (already on laptop)
         run: |
-          set -e
-          kubectl cluster-info
-          kubectl get nodes -o wide
+          kubectl config current-context
+          kubectl get ns
+          kubectl -n ahmad get pods
   
-      - name: Ensure namespace exists
+      - name: Deploy
         run: |
-          set -e
-          kubectl get ns $NAMESPACE >/dev/null 2>&1 || kubectl create ns $NAMESPACE
-  
-      - name: Apply manifests (local path on runner)
-        run: |
-          set -e
-          echo "Using manifests dir: $K8S_DIR"
-          ls -la "$K8S_DIR"
-          kubectl -n $NAMESPACE apply -f "$K8S_DIR/pg-sec.yaml"
-          kubectl -n $NAMESPACE apply -f "$K8S_DIR/backend-cm.yaml"
-          kubectl -n $NAMESPACE apply -f "$K8S_DIR/postgres.yaml"
-          kubectl -n $NAMESPACE apply -f "$K8S_DIR/backend.yaml"
-  
-      - name: Rollout restart (pull latest)
-        run: |
-          set -e
-          kubectl -n $NAMESPACE rollout restart deploy/$DEPLOYMENT
-          kubectl -n $NAMESPACE rollout status deploy/$DEPLOYMENT --timeout=180s
-  
-      - name: Status
-        run: |
-          set -e
-          kubectl -n $NAMESPACE get deploy,pods,svc -o wide
-  
-      - name: Debug (on failure)
-        if: failure()
-        run: |
-          kubectl -n $NAMESPACE get pods -o wide || true
-          kubectl -n $NAMESPACE describe deploy $DEPLOYMENT || true
-          kubectl -n $NAMESPACE get events --sort-by=.metadata.creationTimestamp | tail -n 50 || true
+          kubectl -n ahmad apply -f k8s/
+          kubectl -n ahmad rollout status deploy/backend --timeout=180s
+          kubectl -n ahmad rollout status deploy/frontend --timeout=180s
