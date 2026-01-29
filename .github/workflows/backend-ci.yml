@@ -15,6 +15,7 @@ env:
   DEPLOYMENT: backend
   CONTAINER: backend
   IMAGE: ghcr.io/${{ github.repository_owner }}/my-backend
+  K8S_DIR: /home/ahmad-jaber/k8s
 
 jobs:
   docker:
@@ -43,15 +44,12 @@ jobs:
             ${{ env.IMAGE }}:latest
 
   deploy:
-    name: Deploy Backend to K3s
+    name: Deploy Backend to K3s (local manifests on runner)
     runs-on: self-hosted
     needs: docker
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Show versions
         run: |
           set -e
@@ -69,17 +67,23 @@ jobs:
           set -e
           kubectl get ns $NAMESPACE >/dev/null 2>&1 || kubectl create ns $NAMESPACE
 
-      - name: Apply manifests (from repo)
+      - name: Verify local manifests exist
         run: |
           set -e
-          # Apply namespace file only if you keep it in repo (safe if exists)
-          kubectl apply -f ./k8s/namespace.yaml || true
+          echo "Using manifests dir: $K8S_DIR"
+          ls -la "$K8S_DIR"
+          test -f "$K8S_DIR/pg-sec.yaml"
+          test -f "$K8S_DIR/backend-cm.yaml"
+          test -f "$K8S_DIR/postgres.yaml"
+          test -f "$K8S_DIR/backend.yaml"
 
-          # Apply the rest into the target namespace
-          kubectl -n $NAMESPACE apply -f ./k8s/pg-sec.yaml
-          kubectl -n $NAMESPACE apply -f ./k8s/backend-cm.yaml
-          kubectl -n $NAMESPACE apply -f ./k8s/postgres.yaml
-          kubectl -n $NAMESPACE apply -f ./k8s/backend.yaml
+      - name: Apply manifests (from local path)
+        run: |
+          set -e
+          kubectl -n $NAMESPACE apply -f "$K8S_DIR/pg-sec.yaml"
+          kubectl -n $NAMESPACE apply -f "$K8S_DIR/backend-cm.yaml"
+          kubectl -n $NAMESPACE apply -f "$K8S_DIR/postgres.yaml"
+          kubectl -n $NAMESPACE apply -f "$K8S_DIR/backend.yaml"
 
       - name: Update image & rollout
         run: |
