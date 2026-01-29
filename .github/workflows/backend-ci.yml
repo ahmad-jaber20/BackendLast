@@ -44,19 +44,45 @@ jobs:
             ${{ env.IMAGE }}:latest
 
   deploy:
+    name: Deploy to k3s (from laptop runner)
     runs-on: self-hosted
     needs: docker
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
     steps:
-      - uses: actions/checkout@v4
-  
-      - name: Use kubeconfig (already on laptop)
+      - name: Checkout (optional)
+        uses: actions/checkout@v4
+
+      - name: Verify kube access
         run: |
-          kubectl config current-context
+          kubectl version --client
+          kubectl cluster-info
           kubectl get ns
-          kubectl -n ahmad get pods
-  
-      - name: Deploy
+          kubectl get ns ${{ env.NAMESPACE }} || true
+
+      - name: Verify manifests directory exists on laptop
         run: |
-          kubectl -n ahmad apply -f k8s/
-          kubectl -n ahmad rollout status deploy/backend --timeout=180s
-          kubectl -n ahmad rollout status deploy/frontend --timeout=180s
+          echo "Using K8S_DIR=${{ env.K8S_DIR }}"
+          test -d "${{ env.K8S_DIR }}" || (echo "ERROR: K8S_DIR not found: ${{ env.K8S_DIR }}" && exit 1)
+          ls -la "${{ env.K8S_DIR }}"
+
+      - name: Ensure namespace exists
+        run: |
+          kubectl get ns ${{ env.NAMESPACE }} >/dev/null 2>&1 || kubectl create ns ${{ env.NAMESPACE }}
+
+      - name: Update image & apply manifests
+        run: |
+          set -e
+
+          echo "Setting image to: ${{ env.IMAGE }}:${{ github.sha }}"
+          kubectl -n ${{ env.NAMESPACE }} set image deploy/${{ env.DEPLOYMENT }} \
+            ${{ env.CONTAINER }}=${{ env.IMAGE }}:${{ github.sha }} \
+            --record || true
+
+          echo "Applying manifests from: ${{ env.K8S_DIR }}"
+          kubectl -n ${{ env.NAMESPACE }} apply -f "${{ env.K8S_DIR }}"
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n ${{ env.NAMESPACE }} rollout status deploy/${{ env.DEPLOYMENT }} --timeout=180s
+          kubectl -n ${{ env.NAMESPACE }} get pods -o wide
