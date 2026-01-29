@@ -44,53 +44,45 @@ jobs:
             ${{ env.IMAGE }}:latest
 
   deploy:
-    name: Deploy Backend to K3s (local manifests on runner)
+    name: Deploy Backend to K3s
     runs-on: self-hosted
     needs: docker
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
+  
     steps:
       - name: Show versions
         run: |
           set -e
           kubectl version --client
           docker --version
-
+  
       - name: Ensure kube context works
         run: |
           set -e
           kubectl cluster-info
           kubectl get nodes -o wide
-
+  
       - name: Ensure namespace exists
         run: |
           set -e
           kubectl get ns $NAMESPACE >/dev/null 2>&1 || kubectl create ns $NAMESPACE
-
-      - name: Verify local manifests exist
+  
+      - name: Apply manifests (local path on runner)
         run: |
           set -e
-          echo "Using manifests dir: $K8S_DIR"
+          K8S_DIR="/home/ahmad-jaber/k8s"
           ls -la "$K8S_DIR"
-          test -f "$K8S_DIR/pg-sec.yaml"
-          test -f "$K8S_DIR/backend-cm.yaml"
-          test -f "$K8S_DIR/postgres.yaml"
-          test -f "$K8S_DIR/backend.yaml"
-
-      - name: Apply manifests (from local path)
-        run: |
-          set -e
           kubectl -n $NAMESPACE apply -f "$K8S_DIR/pg-sec.yaml"
           kubectl -n $NAMESPACE apply -f "$K8S_DIR/backend-cm.yaml"
           kubectl -n $NAMESPACE apply -f "$K8S_DIR/postgres.yaml"
           kubectl -n $NAMESPACE apply -f "$K8S_DIR/backend.yaml"
-
-      - name: Update image & rollout
+  
+      - name: Rollout restart (pull latest)
         run: |
           set -e
-          kubectl -n $NAMESPACE set image deploy/$DEPLOYMENT $CONTAINER=${{ env.IMAGE }}:${{ github.sha }}
+          kubectl -n $NAMESPACE rollout restart deploy/$DEPLOYMENT
           kubectl -n $NAMESPACE rollout status deploy/$DEPLOYMENT --timeout=180s
-
+  
       - name: Status
         run: |
           set -e
