@@ -70,9 +70,10 @@ jobs:
         run: |
           kubectl get ns ${{ env.NAMESPACE }} >/dev/null 2>&1 || kubectl create ns ${{ env.NAMESPACE }}
 
-      - name: Deploy
+      - name: Deploy (from laptop K8S_DIR)
         run: |
-         kubectl -n ahmad apply -f k8s/
-         kubectl -n ahmad rollout status deploy/backend --timeout=180s
-         kubectl -n ahmad rollout status deploy/frontend --timeout=180s
+          echo "Applying manifests from: ${{ env.K8S_DIR }}"
+          kubectl -n ${{ env.NAMESPACE }} apply -f "${{ env.K8S_DIR }}"
 
+          kubectl -n ${{ env.NAMESPACE }} rollout status deploy/${{ env.DEPLOYMENT }} --timeout=180s
+          kubectl -n ${{ env.NAMESPACE }} get pods -o wide
