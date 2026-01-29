@@ -70,7 +70,7 @@ jobs:
       - name: Apply manifests (local path on runner)
         run: |
           set -e
-          K8S_DIR="/home/ahmad-jaber/k8s"
+          echo "Using manifests dir: $K8S_DIR"
           ls -la "$K8S_DIR"
           kubectl -n $NAMESPACE apply -f "$K8S_DIR/pg-sec.yaml"
           kubectl -n $NAMESPACE apply -f "$K8S_DIR/backend-cm.yaml"
@@ -87,3 +87,10 @@ jobs:
         run: |
           set -e
           kubectl -n $NAMESPACE get deploy,pods,svc -o wide
+  
+      - name: Debug (on failure)
+        if: failure()
+        run: |
+          kubectl -n $NAMESPACE get pods -o wide || true
+          kubectl -n $NAMESPACE describe deploy $DEPLOYMENT || true
+          kubectl -n $NAMESPACE get events --sort-by=.metadata.creationTimestamp | tail -n 50 || true
